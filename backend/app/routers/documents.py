@@ -15,6 +15,8 @@ from app.database import get_db
 from app.models import User, Document, DocumentStatus, UserRole
 from app.routers.auth import get_current_user
 from app.services.ingestion import ingestion_service
+from app.services.google_drive import google_drive_service
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,10 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 ALLOWED_EXTENSIONS = {"pdf", "docx", "txt", "md", "html"}
 
+class DriveSyncRequest(BaseModel):
+    folder_id: str
+    department: str = "HR"
+    permission_level: str = "all_employees"
 
 @router.post("/upload")
 async def upload_document(
@@ -98,6 +104,55 @@ async def ingest_sample_data(
         }
     except Exception as e:
         logger.error(f"Sample data ingestion failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/sync-drive")
+async def sync_drive_folder(
+    req: DriveSyncRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Sync a Google Drive folder and ingest its documents."""
+    try:
+        # Sync files from Drive to local upload dir
+        synced_files = google_drive_service.sync_folder(req.folder_id, settings.upload_dir)
+        
+        if not synced_files:
+            return {"status": "success", "message": "No valid files found or synced.", "documents_ingested": 0}
+            
+        ingested_docs = []
+        for file_meta in synced_files:
+            # Check if we already have this drive file ID stored in DB to avoid dupes?
+            # For MVP, we'll just ingest. If filename matches, it might overwrite or add new doc.
+            try:
+                doc = await ingestion_service.ingest_document(
+                    db=db,
+                    file_path=file_meta["file_path"],
+                    title=file_meta["title"],
+                    department=req.department,
+                    owner=file_meta["owner"],
+                    permission_level=req.permission_level,
+                )
+                ingested_docs.append({
+                    "id": doc.id,
+                    "title": doc.title,
+                    "status": doc.status.value,
+                    "chunk_count": doc.chunk_count,
+                    "drive_file_id": file_meta["drive_file_id"]
+                })
+            except Exception as inner_e:
+                logger.error(f"Failed to ingest Drive file {file_meta['title']}: {inner_e}")
+                
+        return {
+            "status": "success",
+            "message": f"Successfully synced {len(ingested_docs)} documents out of {len(synced_files)} fetched from Drive.",
+            "documents_ingested": len(ingested_docs),
+            "documents": ingested_docs
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Google Drive sync failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
