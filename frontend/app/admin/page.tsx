@@ -28,6 +28,7 @@ import {
   ingestSampleData,
   deleteDocument,
   uploadDocument,
+  syncGoogleDrive,
   type DashboardStats,
   type DocumentInfo,
   type HealthStatus,
@@ -110,6 +111,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [ingesting, setIngesting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [driveFolderId, setDriveFolderId] = useState("");
   const [activeTab, setActiveTab] = useState<"overview" | "documents" | "health">("overview");
 
   const fetchData = useCallback(async () => {
@@ -156,6 +159,20 @@ export default function AdminPage() {
       console.error("Upload failed:", error);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleSyncDrive = async () => {
+    if (!driveFolderId) return;
+    setSyncing(true);
+    try {
+      await syncGoogleDrive(driveFolderId);
+      await fetchData();
+      setDriveFolderId("");
+    } catch (error) {
+      console.error("Drive sync failed:", error);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -381,6 +398,59 @@ export default function AdminPage() {
                     disabled={uploading}
                   />
                 </label>
+              </div>
+            </motion.div>
+
+            {/* Drive Sync Action */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.45 }}
+              className="p-6 rounded-xl mt-4"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <h3
+                className="font-semibold mb-2"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Google Drive Sync
+              </h3>
+              <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>
+                Sync documents from a shared Google Drive folder directly into the RAG database.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Drive Folder ID"
+                  value={driveFolderId}
+                  onChange={(e) => setDriveFolderId(e.target.value)}
+                  className="px-4 py-2.5 rounded-lg text-sm border focus:outline-none focus:ring-1"
+                  style={{
+                    background: "var(--surface-secondary)",
+                    color: "var(--text-primary)",
+                    borderColor: "var(--border)",
+                  }}
+                />
+                <button
+                  onClick={handleSyncDrive}
+                  disabled={syncing || !driveFolderId}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all"
+                  style={{
+                    background: "var(--accent)",
+                    color: "var(--text-inverse)",
+                    opacity: syncing || !driveFolderId ? 0.7 : 1,
+                  }}
+                >
+                  {syncing ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={14} />
+                  )}
+                  {syncing ? "Syncing..." : "Sync Folder"}
+                </button>
               </div>
             </motion.div>
 

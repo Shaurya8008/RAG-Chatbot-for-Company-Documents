@@ -187,6 +187,26 @@ export async function ingestSampleData(): Promise<{
   return fetchAPI("/api/documents/ingest-sample", { method: "POST" });
 }
 
+export async function syncGoogleDrive(
+  folderId: string,
+  department?: string,
+  permissionLevel?: string
+): Promise<{
+  status: string;
+  message: string;
+  documents_ingested: number;
+  documents: DocumentInfo[];
+}> {
+  return fetchAPI("/api/documents/sync-drive", {
+    method: "POST",
+    body: JSON.stringify({
+      folder_id: folderId,
+      department: department || "HR",
+      permission_level: permissionLevel || "all_employees",
+    }),
+  });
+}
+
 export async function deleteDocument(documentId: string): Promise<void> {
   await fetchAPI(`/api/documents/${documentId}`, { method: "DELETE" });
 }
