@@ -23,6 +23,7 @@ export interface ChatResponse {
   message_id: string;
   retrieval_metadata: Record<string, unknown>;
   generation_metadata: Record<string, unknown>;
+  action_result?: Record<string, unknown>;
 }
 
 export interface ChatMessage {
@@ -31,6 +32,7 @@ export interface ChatMessage {
   content: string;
   citations: Citation[];
   retrieval_metadata: Record<string, unknown>;
+  action_result?: Record<string, unknown>;
   created_at: string;
 }
 

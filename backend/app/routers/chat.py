@@ -16,6 +16,7 @@ from app.models import User, ChatSession, ChatMessage, AuditLog
 from app.routers.auth import get_current_user
 from app.services.retrieval import retrieval_service
 from app.services.generation import generation_service
+from app.services.actions import action_service
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class ChatResponse(BaseModel):
     message_id: str
     retrieval_metadata: dict
     generation_metadata: dict
+    action_result: Optional[dict] = None
 
 
 class SessionResponse(BaseModel):
@@ -97,11 +99,25 @@ async def chat_query(
     retrieved_chunks = retrieval_result["results"]
     retrieval_metadata = retrieval_result["metadata"]
 
-    # 2. Generate grounded answer
-    gen_result = await generation_service.generate_answer(
-        query=req.query,
-        retrieved_chunks=retrieved_chunks,
-    )
+    # 2. Classify intent
+    intent = await action_service.classify_intent(req.query)
+
+    # 3. Generate grounded answer or execute action
+    action_result_dict = None
+    if intent in ["DRAFT_EMAIL", "CREATE_TICKET"]:
+        action_out = await action_service.execute_action(intent, req.query, retrieved_chunks)
+        gen_result = {
+            "answer": "I have drafted the requested item for you.",
+            "citations": [],
+            "confidence": "high",
+            "metadata": {"model": "llama3.2", "generation_time_ms": 0}
+        }
+        action_result_dict = action_out
+    else:
+        gen_result = await generation_service.generate_answer(
+            query=req.query,
+            retrieved_chunks=retrieved_chunks,
+        )
 
     total_time = time.time() - start_time
 
@@ -114,6 +130,7 @@ async def chat_query(
         retrieval_metadata={
             **retrieval_metadata,
             "total_pipeline_time_ms": round(total_time * 1000),
+            "action_result": action_result_dict
         },
     )
     db.add(assistant_msg)
@@ -144,6 +161,7 @@ async def chat_query(
         message_id=assistant_msg.id,
         retrieval_metadata=retrieval_metadata,
         generation_metadata=gen_result["metadata"],
+        action_result=action_result_dict,
     )
 
 
@@ -163,17 +181,28 @@ async def chat_query_stream(
 
     retrieved_chunks = retrieval_result["results"]
 
+    # 2. Classify intent
+    intent = await action_service.classify_intent(req.query)
+
     # Stream the answer
     async def event_stream():
         # Send retrieval metadata first
         import json
         yield f"data: {json.dumps({'type': 'retrieval', 'metadata': retrieval_result['metadata']})}\n\n"
 
-        async for token_json in generation_service.generate_answer_stream(
-            query=req.query,
-            retrieved_chunks=retrieved_chunks,
-        ):
-            yield f"data: {token_json}\n\n"
+        if intent in ["DRAFT_EMAIL", "CREATE_TICKET"]:
+            # For actions, we execute synchronously and return the result as a single token for simplicity
+            action_out = await action_service.execute_action(intent, req.query, retrieved_chunks)
+            yield f"data: {json.dumps({'type': 'action', 'content': action_out})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'content': 'I have drafted the requested item for you.'})}\n\n"
+            yield f"data: {json.dumps({'type': 'citations', 'content': []})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        else:
+            async for token_json in generation_service.generate_answer_stream(
+                query=req.query,
+                retrieved_chunks=retrieved_chunks,
+            ):
+                yield f"data: {token_json}\n\n"
 
     return StreamingResponse(
         event_stream(),

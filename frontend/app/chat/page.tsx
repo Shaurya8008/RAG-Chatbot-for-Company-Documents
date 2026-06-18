@@ -32,6 +32,7 @@ interface Message {
   confidence?: string;
   retrievalMetadata?: Record<string, unknown>;
   generationMetadata?: Record<string, unknown>;
+  actionResult?: Record<string, unknown>;
   isLoading?: boolean;
 }
 
@@ -506,6 +507,7 @@ function ChatPageContent() {
         confidence: response.confidence,
         retrievalMetadata: response.retrieval_metadata,
         generationMetadata: response.generation_metadata,
+        actionResult: response.action_result,
       };
 
       setMessages((prev) =>
@@ -641,6 +643,37 @@ function ChatPageContent() {
                             border: "1px solid var(--border)",
                           }}
                         >
+                          {/* Action Result Widget */}
+                          {message.actionResult && (
+                            <div className="mb-4">
+                              <div
+                                className="p-4 rounded-xl text-sm"
+                                style={{
+                                  background: "var(--accent-lighter)",
+                                  border: "1px solid var(--accent)",
+                                  color: "var(--text-primary)"
+                                }}
+                              >
+                                <div className="flex items-center justify-between mb-2 pb-2" style={{ borderBottom: "1px solid var(--border)" }}>
+                                  <div className="flex items-center gap-2 font-medium" style={{ color: "var(--accent)" }}>
+                                    <Sparkles size={16} />
+                                    {message.actionResult.action === "DRAFT_EMAIL" ? "Email Drafted 📧" : "Ticket Created 🎫"}
+                                  </div>
+                                  <button 
+                                    className="text-xs px-2 py-1 rounded" 
+                                    style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                                    onClick={() => navigator.clipboard.writeText(String(message.actionResult?.content || ""))}
+                                  >
+                                    Copy
+                                  </button>
+                                </div>
+                                <div className="whitespace-pre-wrap font-mono text-xs">
+                                  {String(message.actionResult.content)}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Confidence badge */}
                           {message.confidence && (
                             <div className="mb-3">
